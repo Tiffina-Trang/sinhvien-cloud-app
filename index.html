@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quản lý Sinh viên — Demo</title>
+  <style>
+    :root{--accent:#2b6cb0;--muted:#666}
+    body{font-family:Inter,system-ui,Arial;margin:0;padding:20px;background:#f7fafc;color:#1a202c}
+    .container{max-width:900px;margin:0 auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.06)}
+    h1{margin:0 0 12px;font-size:22px}
+    form{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
+    label{font-size:13px;color:var(--muted)}
+    input,select{width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px}
+    .full{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap}
+    button{background:var(--accent);color:#fff;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button.secondary{background:#edf2f7;color:#1a202c}
+    .controls{display:flex;gap:8px;align-items:center;margin:12px 0}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:8px;border-bottom:1px solid #edf2f7;text-align:left;font-size:14px}
+    th{background:#f1f5f9}
+    .actions button{margin-right:6px;padding:6px 8px;font-size:13px}
+    .empty{padding:18px;text-align:center;color:var(--muted)}
+    @media (max-width:640px){form{grid-template-columns:1fr} .actions{display:flex;flex-wrap:wrap}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Quản lý Sinh viên (Demo, lưu local)</h1>
+
+    <form id="studentForm" autocomplete="off">
+      <div>
+        <label>Mã SV</label>
+        <input id="ma" required />
+      </div>
+      <div>
+        <label>Họ & Tên</label>
+        <input id="hoten" required />
+      </div>
+      <div>
+        <label>Ngành</label>
+        <input id="nganh" />
+      </div>
+      <div>
+        <label>Năm nhập học</label>
+        <input id="nam" type="number" min="2000" max="2100" />
+      </div>
+      <div class="full">
+        <button id="saveBtn" type="submit">Thêm / Cập nhật</button>
+        <button id="clearBtn" type="button" class="secondary">Xóa form</button>
+        <button id="exportBtn" type="button" class="secondary">Xuất CSV</button>
+      </div>
+    </form>
+
+    <div class="controls">
+      <input id="search" placeholder="Tìm theo mã hoặc tên..." style="flex:1;padding:8px;border:1px solid #e2e8f0;border-radius:8px" />
+      <select id="sort">
+        <option value="ma">Sắp xếp: Mã</option>
+        <option value="hoten">Sắp xếp: Họ tên</option>
+        <option value="nam">Sắp xếp: Năm</option>
+      </select>
+      <button id="resetBtn" class="secondary">Xóa tất cả</button>
+    </div>
+
+    <div id="listArea"></div>
+  </div>
+
+  <script>
+    // Storage key
+    const STORAGE_KEY = 'student_manager_demo_v1';
+
+    // Elements
+    const form = document.getElementById('studentForm');
+    const maEl = document.getElementById('ma');
+    const hotenEl = document.getElementById('hoten');
+    const nganhEl = document.getElementById('nganh');
+    const namEl = document.getElementById('nam');
+    const listArea = document.getElementById('listArea');
+    const searchEl = document.getElementById('search');
+    const sortEl = document.getElementById('sort');
+    const resetBtn = document.getElementById('resetBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    let students = [];
+    let editingId = null;
+
+    // load
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        students = raw ? JSON.parse(raw) : [];
+      } catch(e) { students = []; }
+      render();
+    }
+
+    function saveStorage() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+    }
+
+    function render() {
+      const q = searchEl.value.trim().toLowerCase();
+      const sortBy = sortEl.value;
+      let list = students.slice();
+
+      // filter
+      if (q) {
+        list = list.filter(s => (s.ma + ' ' + s.hoten).toLowerCase().includes(q));
+      }
+      // sort
+      list.sort((a,b) => {
+        if (sortBy === 'nam') return (a.nam||0) - (b.nam||0);
+        return (''+(a[sortBy]||'')).localeCompare((b[sortBy]||''));
+      });
+
+      if (!list.length) {
+        listArea.innerHTML = '<div class="empty">Chưa có sinh viên nào.</div>';
+        return;
+      }
+
+      let html = '<table><thead><tr><th>Mã SV</th><th>Họ tên</th><th>Ngành</th><th>Năm</th><th>Hành động</th></tr></thead><tbody>';
+      for (const s of list) {
+        html += `<tr>
+          <td>${escapeHtml(s.ma)}</td>
+          <td>${escapeHtml(s.hoten)}</td>
+          <td>${escapeHtml(s.nganh||'')}</td>
+          <td>${escapeHtml(s.nam||'')}</td>
+          <td class="actions">
+            <button onclick="editStudent('${s.id}')">Sửa</button>
+            <button onclick="deleteStudent('${s.id}')">Xóa</button>
+          </td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      listArea.innerHTML = html;
+    }
+
+    // helpers
+    function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+    function escapeHtml(s){ if(!s && s!==0) return ''; return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch])); }
+
+    // form submit
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const ma = maEl.value.trim();
+      const hoten = hotenEl.value.trim();
+      const nganh = nganhEl.value.trim();
+      const nam = namEl.value ? parseInt(namEl.value,10) : '';
+
+      if (!ma || !hoten) { alert('Mã và Họ tên là bắt buộc'); return; }
+
+      // nếu đang edit
+      if (editingId) {
+        const idx = students.findIndex(s => s.id === editingId);
+        if (idx >= 0) {
+          students[idx] = { ...students[idx], ma, hoten, nganh, nam };
+          editingId = null;
+        }
+      } else {
+        // tránh trùng mã (nếu muốn)
+        const exists = students.some(s => s.ma === ma);
+        if (exists) {
+          if (!confirm('Mã đã tồn tại. Bạn vẫn muốn thêm?')) return;
+        }
+        students.push({ id: uid(), ma, hoten, nganh, nam });
+      }
+      saveStorage();
+      form.reset();
+      render();
+    });
+
+    // edit / delete global functions (accessible from inline onclick)
+    window.editStudent = function(id) {
+      const s = students.find(x => x.id === id);
+      if (!s) return;
+      editingId = id;
+      maEl.value = s.ma;
+      hotenEl.value = s.hoten;
+      nganhEl.value = s.nganh || '';
+      namEl.value = s.nam || '';
+      maEl.focus();
+    };
+
+    window.deleteStudent = function(id) {
+      if (!confirm('Xác nhận xóa sinh viên này?')) return;
+      students = students.filter(s => s.id !== id);
+      saveStorage();
+      render();
+    };
+
+    // reset all
+    resetBtn.addEventListener('click', () => {
+      if (!confirm('Xóa toàn bộ dữ liệu localStorage?')) return;
+      students = [];
+      saveStorage();
+      render();
+    });
+
+    // clear form
+    clearBtn.addEventListener('click', () => {
+      form.reset();
+      editingId = null;
+    });
+
+    // search / sort
+    searchEl.addEventListener('input', render);
+    sortEl.addEventListener('change', render);
+
+    // export csv
+    exportBtn.addEventListener('click', () => {
+      if (!students.length) { alert('Không có dữ liệu để xuất'); return; }
+      const header = ['MaSV','HoTen','Nganh','Nam'];
+      const rows = students.map(s => [s.ma,s.hoten,s.nganh||'',''+(s.nam||'')]);
+      const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'students.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // init
+    load();
+  </script>
+</body>
+</html>
